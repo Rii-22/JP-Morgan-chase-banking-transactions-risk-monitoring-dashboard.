@@ -458,6 +458,17 @@ def main():
     df = generate_synthetic_transactions(10000)
     
     # Sidebar Controls
+    st.sidebar.markdown("""
+        <div style='text-align: center; padding: 20px 0;'>
+            <svg width="180" height="60" viewBox="0 0 180 60" xmlns="http://www.w3.org/2000/svg">
+                <!-- JP Morgan Chase Logo -->
+                <rect x="0" y="0" width="180" height="60" fill="#117ACA" rx="5"/>
+                <text x="90" y="25" font-family="Arial, sans-serif" font-size="20" font-weight="bold" fill="white" text-anchor="middle">J.P. Morgan</text>
+                <text x="90" y="45" font-family="Arial, sans-serif" font-size="16" fill="white" text-anchor="middle">Chase & Co.</text>
+            </svg>
+        </div>
+    """, unsafe_allow_html=True)
+    
     st.sidebar.header("🎛️ Control Panel")
     st.sidebar.markdown("---")
     
