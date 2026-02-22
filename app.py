@@ -138,19 +138,32 @@ def generate_synthetic_transactions(n_transactions=10000):
     return df
 
 def calculate_benfords_law(amounts):
-    """Benford's Law Module - Forensic analysis to detect manual data manipulation"""
+    """
+    Benford's Law Module - Forensic analysis to detect manual data manipulation.
+
+    FIX: Returns raw counts (not percentages) for the chi-square test so that
+    scipy.stats.chisquare receives properly scaled observed/expected frequencies.
+    Percentage values are returned separately for display purposes only.
+    """
     first_digits = []
     for amount in amounts:
         amount_str = str(int(amount))
         if amount_str and amount_str[0] != '0':
             first_digits.append(int(amount_str[0]))
-    
-    digit_counts = Counter(first_digits)
+
     total = len(first_digits)
-    actual_freq = {d: (digit_counts.get(d, 0) / total * 100) for d in range(1, 10)}
-    theoretical_freq = {d: np.log10(1 + 1/d) * 100 for d in range(1, 10)}
-    
-    return actual_freq, theoretical_freq
+    digit_counts = Counter(first_digits)
+
+    # Counts (for chi-square test)
+    observed_counts = {d: digit_counts.get(d, 0) for d in range(1, 10)}
+    expected_counts = {d: total * np.log10(1 + 1 / d) for d in range(1, 10)}
+
+    # Percentages (for display only)
+    actual_freq = {d: observed_counts[d] / total * 100 for d in range(1, 10)}
+    theoretical_freq = {d: expected_counts[d] / total * 100 for d in range(1, 10)}
+
+    return actual_freq, theoretical_freq, observed_counts, expected_counts
+
 
 def calculate_z_scores(amounts):
     """Statistical Anomaly Module - Calculate Z-Scores to detect fat-tail risks"""
@@ -211,11 +224,17 @@ def generate_comprehensive_analysis(filtered_df, critical_anomalies, ghost_trans
     ghost_hour_pct = (len(ghost_transactions) / total_txns) * 100
     anomaly_pct = (critical_anomalies / total_txns) * 100
     
-    # Benford's Law
-    actual_freq, theoretical_freq = calculate_benfords_law(filtered_df['Amount'].values)
+    # ===================================================================
+    # FIX: Use raw counts for chi-square test (not percentages).
+    # Passing percentages to scipy.stats.chisquare was incorrect because
+    # the function expects observed/expected frequencies (counts), not
+    # rates. Using percentages inflated the chi-square statistic and
+    # produced artificially low p-values, falsely suggesting fraud.
+    # ===================================================================
+    _, _, observed_counts, expected_counts = calculate_benfords_law(filtered_df['Amount'].values)
     chi_stat, p_value = stats.chisquare(
-        [actual_freq[d] for d in range(1, 10)],
-        [theoretical_freq[d] for d in range(1, 10)]
+        [observed_counts[d] for d in range(1, 10)],
+        [expected_counts[d] for d in range(1, 10)]
     )
     
     # Regional analysis
@@ -282,7 +301,7 @@ def generate_comprehensive_analysis(filtered_df, critical_anomalies, ghost_trans
                 'insight': f"Using a {z_threshold}-sigma threshold, {critical_anomalies} transactions exhibit statistical behavior significantly deviating from normal patterns. These represent fat-tail risks requiring immediate forensic review and potential escalation to compliance teams."
             },
             {
-                'title': '5. Benford\'s Law Compliance Test',
+                'title': "5. Benford's Law Compliance Test",
                 'metrics': [
                     f"Chi-Square Statistic: χ² = {chi_stat:.4f}",
                     f"P-Value: {p_value:.4f}",
@@ -346,8 +365,8 @@ def generate_comprehensive_analysis(filtered_df, critical_anomalies, ghost_trans
             },
             {
                 'priority': 'MEDIUM',
-                'title': 'Benford\'s Law Investigation',
-                'action': 'Launch data integrity audit to investigate deviations from Benford\'s Law distribution. Review transaction origination processes for potential manual entry errors or systematic manipulation.' if p_value < 0.05 else 'Continue monitoring first-digit distributions quarterly to maintain data integrity baseline.',
+                'title': "Benford's Law Investigation",
+                'action': "Launch data integrity audit to investigate deviations from Benford's Law distribution. Review transaction origination processes for potential manual entry errors or systematic manipulation." if p_value < 0.05 else "Continue monitoring first-digit distributions quarterly to maintain data integrity baseline.",
                 'timeline': '2-4 weeks',
                 'impact': 'Medium - Data quality assurance'
             },
@@ -371,7 +390,12 @@ def generate_comprehensive_analysis(filtered_df, critical_anomalies, ghost_trans
             'anomaly_contribution': (anomaly_pct / 100) * 30,
             'ghost_hour_contribution': (ghost_hour_pct / 100) * 30,
             'merchant_risk_contribution': (risk_merchant_pct / 100) * 40
-        }
+        },
+        # Pass through for use in the temporal tab
+        'chi_stat': chi_stat,
+        'p_value': p_value,
+        'ghost_hour_pct': ghost_hour_pct,
+        'peak_hour': peak_hour,
     }
     
     return analysis
@@ -461,7 +485,6 @@ def main():
     st.sidebar.markdown("""
         <div style='text-align: center; padding: 20px 0;'>
             <svg width="180" height="60" viewBox="0 0 180 60" xmlns="http://www.w3.org/2000/svg">
-                <!-- JP Morgan Chase Logo -->
                 <rect x="0" y="0" width="180" height="60" fill="#117ACA" rx="5"/>
                 <text x="90" y="25" font-family="Arial, sans-serif" font-size="20" font-weight="bold" fill="white" text-anchor="middle">J.P. Morgan</text>
                 <text x="90" y="45" font-family="Arial, sans-serif" font-size="16" fill="white" text-anchor="middle">Chase & Co.</text>
@@ -583,7 +606,14 @@ def main():
         Significant deviations may indicate manual manipulation or fraud.
         """)
         
-        actual_freq, theoretical_freq = calculate_benfords_law(filtered_df['Amount'].values)
+        # ===================================================================
+        # FIX: Use the updated function signature that returns counts too.
+        # Display percentages to the user, but run the chi-square test on
+        # raw counts (see calculate_benfords_law docstring for explanation).
+        # ===================================================================
+        actual_freq, theoretical_freq, observed_counts, expected_counts = calculate_benfords_law(
+            filtered_df['Amount'].values
+        )
         
         benford_df = pd.DataFrame({
             'Digit': range(1, 10),
@@ -602,10 +632,10 @@ def main():
             st.markdown("**Theoretical Distribution**")
             st.bar_chart(benford_df.set_index('Digit')['Theoretical %'])
         
-        # Chi-Square Goodness of Fit Test
+        # Chi-Square Goodness of Fit Test — using counts, not percentages
         chi_stat, p_value = stats.chisquare(
-            [actual_freq[d] for d in range(1, 10)],
-            [theoretical_freq[d] for d in range(1, 10)]
+            [observed_counts[d] for d in range(1, 10)],
+            [expected_counts[d] for d in range(1, 10)]
         )
         
         st.info(f"**Chi-Square Test**: χ² = {chi_stat:.4f}, p-value = {p_value:.4f}")
@@ -646,14 +676,50 @@ def main():
     with tab4:
         st.subheader("🕐 Temporal Risk Analysis")
         
+        # Ensure Hour column is present
+        filtered_df['Hour'] = pd.to_datetime(filtered_df['Timestamp']).dt.hour
+        filtered_df['DayOfWeek'] = pd.to_datetime(filtered_df['Timestamp']).dt.day_name()
+
         # Hourly Distribution
         hourly_counts = filtered_df['Hour'].value_counts().sort_index()
         
-        st.markdown("**Transaction Volume by Hour**")
+        st.markdown("**Transaction Volume by Hour of Day**")
         st.bar_chart(hourly_counts)
-        
+
+        st.markdown("---")
+
+        # ===================================================================
+        # NEW: Ghost Hour Heatmap — Hour × Day-of-Week transaction volume.
+        # This makes the temporal risk pattern much more visual and
+        # immediately digestible for anyone reviewing the dashboard.
+        # ===================================================================
+        st.markdown("### 🔥 Transaction Heatmap: Hour × Day of Week")
+        st.caption("Darker cells = higher volume. Ghost hours (00:00–05:00) highlighted in context.")
+
+        day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        heatmap_data = (
+            filtered_df.groupby(['DayOfWeek', 'Hour'])
+            .size()
+            .reset_index(name='Count')
+        )
+
+        # Pivot to Hour × Day matrix
+        heatmap_pivot = heatmap_data.pivot(index='Hour', columns='DayOfWeek', values='Count').fillna(0)
+        # Reorder columns to Monday–Sunday
+        heatmap_pivot = heatmap_pivot.reindex(
+            columns=[d for d in day_order if d in heatmap_pivot.columns]
+        )
+
+        st.dataframe(
+            heatmap_pivot.style.background_gradient(cmap='Reds', axis=None),
+            use_container_width=True,
+            height=600
+        )
+
+        st.markdown("---")
+
         # Ghost Hours Analysis
-        st.markdown("### 👻 Ghost Hours (00:00 - 05:00)")
+        st.markdown("### 👻 Ghost Hours Detail (00:00 – 05:00)")
         st.warning(f"**{len(ghost_transactions)}** transactions detected during ghost hours")
         
         if len(ghost_transactions) > 0:
