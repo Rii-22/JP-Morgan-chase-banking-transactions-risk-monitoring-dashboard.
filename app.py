@@ -710,8 +710,26 @@ def main():
             columns=[d for d in day_order if d in heatmap_pivot.columns]
         )
 
+        # Normalize values 0-1 across the whole matrix for coloring
+        max_val = heatmap_pivot.values.max()
+        min_val = heatmap_pivot.values.min()
+
+        def color_cell(val):
+            """Map value to a red shade without requiring matplotlib."""
+            if max_val == min_val:
+                intensity = 0
+            else:
+                intensity = (val - min_val) / (max_val - min_val)
+            r = int(255)
+            g = int(255 * (1 - intensity * 0.85))
+            b = int(255 * (1 - intensity * 0.85))
+            text = "black" if intensity < 0.6 else "white"
+            return f"background-color: rgb({r},{g},{b}); color: {text};"
+
+        styled = heatmap_pivot.style.applymap(color_cell)
+
         st.dataframe(
-            heatmap_pivot.style.background_gradient(cmap='Reds', axis=None),
+            styled,
             use_container_width=True,
             height=600
         )
